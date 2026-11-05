@@ -2,51 +2,25 @@
 # ICMP watchdog. Telegram on consecutive failures, reminders, and recovery.
 # Healthy ticks log one line and stay silent on Telegram / cron mail.
 #
+# All site values live in a gitignored .env (see .env.example).
 # Cron (every 2 min), path is yours:
 #   */2 * * * * $HOME/git/ping-peer-alerter/ping-peer-alerter.sh >> $HOME/log/ping-peer-alerter.log 2>&1
 set -euo pipefail
 export PATH="/usr/bin:/bin"
 
-# Values already in the environment (CLI dry-run) win over this block.
-_env_TARGET_HOST="${TARGET_HOST:-}"
-_env_TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-_env_TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
-_env_WATCH_NAME="${WATCH_NAME:-}"
-_env_TZ="${TZ:-}"
-_env_PING_COUNT="${PING_COUNT:-}"
-_env_PING_WAIT="${PING_WAIT:-}"
-_env_FAIL_THRESHOLD="${FAIL_THRESHOLD:-}"
-_env_REMIND_SECS="${REMIND_SECS:-}"
-_env_STATE_DIR="${PING_PEER_STATE_DIR:-}"
-
-# =============================================================================
-# CONFIG — fill these. Leave empty to fall back to .env (gitignored).
-# Do not commit filled tokens or addresses to a public repo.
-# =============================================================================
-TARGET_HOST=""                 # ICMP address or hostname of the peer
-TELEGRAM_BOT_TOKEN=""          # BotFather token
-TELEGRAM_CHAT_ID=""            # destination chat id
-WATCH_NAME="target"            # label in Telegram text
-TZ="UTC"                       # timestamps, e.g. America/New_York
-
-PING_COUNT=3                   # ICMP echoes per probe
-PING_WAIT=2                    # seconds to wait for each echo
-FAIL_THRESHOLD=3               # consecutive fails before first Telegram
-REMIND_SECS=3600               # seconds between down reminders
-STATE_DIR="${HOME}/.cache/ping-peer-alerter"
-# =============================================================================
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_cfg_TARGET_HOST="$TARGET_HOST"
-_cfg_TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
-_cfg_TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
-_cfg_WATCH_NAME="$WATCH_NAME"
-_cfg_TZ="$TZ"
-_cfg_PING_COUNT="$PING_COUNT"
-_cfg_PING_WAIT="$PING_WAIT"
-_cfg_FAIL_THRESHOLD="$FAIL_THRESHOLD"
-_cfg_REMIND_SECS="$REMIND_SECS"
-_cfg_STATE_DIR="$STATE_DIR"
+
+# CLI dry-run wins over .env (TARGET_HOST=203.0.113.1 ./ping-peer-alerter.sh)
+_cli_TARGET_HOST="${TARGET_HOST:-}"
+_cli_TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+_cli_TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+_cli_WATCH_NAME="${WATCH_NAME:-}"
+_cli_TZ="${TZ:-}"
+_cli_PING_COUNT="${PING_COUNT:-}"
+_cli_PING_WAIT="${PING_WAIT:-}"
+_cli_FAIL_THRESHOLD="${FAIL_THRESHOLD:-}"
+_cli_REMIND_SECS="${REMIND_SECS:-}"
+_cli_STATE_DIR="${STATE_DIR:-${PING_PEER_STATE_DIR:-}}"
 
 if [[ -n "${PING_PEER_ENV:-}" ]]; then
   ENVFILE="$PING_PEER_ENV"
@@ -55,28 +29,29 @@ elif [[ -f "${HOME}/.config/ping-peer-alerter.env" ]]; then
 elif [[ -f "${HERE}/.env" ]]; then
   ENVFILE="${HERE}/.env"
 else
-  ENVFILE=""
+  ENVFILE="${HERE}/.env"
 fi
 
-if [[ -n "$ENVFILE" && -f "$ENVFILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a
-  source "$ENVFILE"
-  set +a
+if [[ ! -f "$ENVFILE" ]]; then
+  echo "ERROR: missing env file: $ENVFILE (copy .env.example to .env)" >&2
+  exit 1
 fi
+# shellcheck disable=SC1090
+set -a
+source "$ENVFILE"
+set +a
 unset github_pat GITHUB_PAT GH_TOKEN GITHUB_TOKEN 2>/dev/null || true
 
-# Precedence: CLI env > CONFIG block (if non-empty) > .env
-TARGET_HOST="${_env_TARGET_HOST:-${_cfg_TARGET_HOST:-${TARGET_HOST:-}}}"
-TELEGRAM_BOT_TOKEN="${_env_TELEGRAM_BOT_TOKEN:-${_cfg_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}}"
-TELEGRAM_CHAT_ID="${_env_TELEGRAM_CHAT_ID:-${_cfg_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}"
-WATCH_NAME="${_env_WATCH_NAME:-${_cfg_WATCH_NAME:-${WATCH_NAME:-target}}}"
-TZ="${_env_TZ:-${_cfg_TZ:-${TZ:-UTC}}}"
-PING_COUNT="${_env_PING_COUNT:-${_cfg_PING_COUNT:-${PING_COUNT:-3}}}"
-PING_WAIT="${_env_PING_WAIT:-${_cfg_PING_WAIT:-${PING_WAIT:-2}}}"
-FAIL_THRESHOLD="${_env_FAIL_THRESHOLD:-${_cfg_FAIL_THRESHOLD:-${FAIL_THRESHOLD:-3}}}"
-REMIND_SECS="${_env_REMIND_SECS:-${_cfg_REMIND_SECS:-${REMIND_SECS:-3600}}}"
-STATE_DIR="${_env_STATE_DIR:-${_cfg_STATE_DIR:-${PING_PEER_STATE_DIR:-${HOME}/.cache/ping-peer-alerter}}}"
+TARGET_HOST="${_cli_TARGET_HOST:-${TARGET_HOST:-}}"
+TELEGRAM_BOT_TOKEN="${_cli_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
+TELEGRAM_CHAT_ID="${_cli_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+WATCH_NAME="${_cli_WATCH_NAME:-${WATCH_NAME:-}}"
+TZ="${_cli_TZ:-${TZ:-}}"
+PING_COUNT="${_cli_PING_COUNT:-${PING_COUNT:-}}"
+PING_WAIT="${_cli_PING_WAIT:-${PING_WAIT:-}}"
+FAIL_THRESHOLD="${_cli_FAIL_THRESHOLD:-${FAIL_THRESHOLD:-}}"
+REMIND_SECS="${_cli_REMIND_SECS:-${REMIND_SECS:-}}"
+STATE_DIR="${_cli_STATE_DIR:-${STATE_DIR:-${PING_PEER_STATE_DIR:-}}}"
 STATEFILE="${STATE_DIR}/state"
 ALERT_SENT_FILE="${STATE_DIR}/alert_sent"
 
@@ -91,9 +66,16 @@ die() {
   exit 1
 }
 
-: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN unset — fill CONFIG at top of script or .env}"
-: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID unset — fill CONFIG at top of script or .env}"
-: "${TARGET_HOST:?TARGET_HOST unset — fill CONFIG at top of script or .env}"
+: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN unset in $ENVFILE}"
+: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID unset in $ENVFILE}"
+: "${TARGET_HOST:?TARGET_HOST unset in $ENVFILE}"
+: "${WATCH_NAME:?WATCH_NAME unset in $ENVFILE}"
+: "${TZ:?TZ unset in $ENVFILE}"
+: "${PING_COUNT:?PING_COUNT unset in $ENVFILE}"
+: "${PING_WAIT:?PING_WAIT unset in $ENVFILE}"
+: "${FAIL_THRESHOLD:?FAIL_THRESHOLD unset in $ENVFILE}"
+: "${REMIND_SECS:?REMIND_SECS unset in $ENVFILE}"
+: "${STATE_DIR:?STATE_DIR unset in $ENVFILE}"
 
 mkdir -p "$STATE_DIR"
 
