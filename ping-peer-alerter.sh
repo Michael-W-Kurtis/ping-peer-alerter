@@ -77,6 +77,22 @@ die() {
 : "${REMIND_SECS:?REMIND_SECS unset in $ENVFILE}"
 : "${STATE_DIR:?STATE_DIR unset in $ENVFILE}"
 
+# Channel (@name or -100...), user id, or comma-separated mix.
+# A @...bot username is a bot, not a channel — Telegram will 403.
+CHAT_IDS=()
+_raw="${TELEGRAM_CHAT_ID//,/ }"
+_raw="${_raw//; / }"
+_raw="${_raw//;/ }"
+for _id in ${_raw}; do
+  [[ -z "$_id" ]] && continue
+  if [[ "$_id" =~ ^@.+[Bb][Oo][Tt]$ ]]; then
+    die "TELEGRAM_CHAT_ID ${_id} is a bot username. Use a channel @name or numeric -100 id, and add this bot as a channel admin."
+  fi
+  CHAT_IDS+=("$_id")
+done
+((${#CHAT_IDS[@]} > 0)) || die "TELEGRAM_CHAT_ID has no destinations"
+unset _raw _id
+
 mkdir -p "$STATE_DIR"
 
 if [[ -f "$STATEFILE" ]]; then
@@ -88,13 +104,26 @@ FAILURES=${FAILURES:-0}
 
 send_telegram() {
   local text="$1"
-  local resp
-  resp=$(curl -sS --max-time 20 -X POST \
-    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-    --data-urlencode "text=${text}" \
-    -d "disable_web_page_preview=true") || die "telegram curl failed"
-  printf '%s' "$resp" | grep -q '"ok":true' || die "telegram API: $resp"
+  local chat_id resp
+  local fail=0
+  for chat_id in "${CHAT_IDS[@]}"; do
+    resp=$(curl -sS --max-time 20 -X POST \
+      "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${chat_id}" \
+      --data-urlencode "text=${text}" \
+      -d "disable_web_page_preview=true") || {
+      log "ERROR: telegram curl failed dest=${chat_id}"
+      fail=1
+      continue
+    }
+    if printf '%s' "$resp" | grep -q '"ok":true'; then
+      log "telegram ok dest=${chat_id}"
+    else
+      log "ERROR: telegram API dest=${chat_id}: $resp"
+      fail=1
+    fi
+  done
+  (( fail == 0 )) || die "telegram send failed for one or more destinations"
 }
 
 NOW=$(date +%s)

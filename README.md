@@ -11,7 +11,7 @@ file. Tracked files contain no addresses, tokens, or credentials.
 Copy .env.example to .env, chmod 600, and fill:
 
     TELEGRAM_BOT_TOKEN
-    TELEGRAM_CHAT_ID
+    TELEGRAM_CHAT_ID       channel @name or -100... id (comma-separated ok)
     TARGET_HOST            ICMP destination as seen from the watcher
     WATCH_NAME             short label used in Telegram text
     TZ                     timestamps (example: UTC)
@@ -25,6 +25,17 @@ github_pat may live in the same .env for git push; the script unsets
 it after sourcing so cron does not keep a GitHub token.
 
 Precedence: CLI environment > .env
+
+## Telegram channel (multiple people)
+
+Create a channel, add the bot as administrator with Post messages, then set TELEGRAM_CHAT_ID:
+
+    @your_channel          public channel username (must not end in "bot")
+    -100xxxxxxxxxx         private channel id
+
+Do not use a @...bot username. Bots cannot message bots.
+
+Invite whoever should see alerts to the channel. Comma-separate extra destinations if needed.
 
 ## Behavior
 
