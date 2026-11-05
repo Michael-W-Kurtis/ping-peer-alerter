@@ -1,0 +1,5 @@
+# Site-local secrets (PAT, Telegram, addresses). Never commit.
+.env
+.env.local
+*.env
+!.env.example
