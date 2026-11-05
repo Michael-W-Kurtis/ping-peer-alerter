@@ -135,7 +135,7 @@ fi
 
 if (( UP == 1 )); then
   if [[ -f "$ALERT_SENT_FILE" ]]; then
-    DOWN_FOR=$(( NOW - $(cut -d: -f1 < "$ALERT_SENT_FILE") ))
+    DOWN_FOR=$(( NOW - $(cut -f1 < "$ALERT_SENT_FILE") ))
     send_telegram "$(printf '%s\n' \
       "${WATCH_NAME} recovered" \
       "host: ${TARGET_HOST}" \
@@ -165,13 +165,24 @@ SEND=0
 if [[ ! -f "$ALERT_SENT_FILE" ]]; then
   SEND=1
 else
-  LAST_ALERT_TS=$(cut -d: -f1 < "$ALERT_SENT_FILE")
-  if (( NOW - LAST_ALERT_TS >= REMIND_SECS )); then
+  LAST_ALERT_TS=$(cut -f1 < "$ALERT_SENT_FILE")
+  LAST_TARGET=$(cut -f2 < "$ALERT_SENT_FILE")
+  LAST_CHAT=$(cut -f3 < "$ALERT_SENT_FILE")
+  if [[ -n "$LAST_TARGET" && "$LAST_TARGET" != "$TARGET_HOST" ]]; then
+    SEND=1
+    log "target changed; sending again"
+  elif [[ -n "$LAST_CHAT" && "$LAST_CHAT" != "$TELEGRAM_CHAT_ID" ]]; then
+    SEND=1
+    log "telegram dest changed; sending again"
+  elif (( NOW - LAST_ALERT_TS >= REMIND_SECS )); then
     SEND=1
   fi
 fi
 
 if (( SEND == 0 )); then
+  AGE=$((NOW - LAST_ALERT_TS))
+  LEFT=$((REMIND_SECS - AGE))
+  log "skip telegram already alerted ${AGE}s ago; next reminder in ${LEFT}s (rm $ALERT_SENT_FILE to force)"
   exit 0
 fi
 
@@ -188,6 +199,6 @@ send_telegram "$(printf '%s\n' \
   "probe: ping -c ${PING_COUNT} -W ${PING_WAIT}" \
   "time: $(date '+%Y-%m-%d %H:%M:%S %Z')")"
 
-printf '%s\n' "$NOW" > "$ALERT_SENT_FILE"
+printf '%s\t%s\t%s\n' "$NOW" "$TARGET_HOST" "$TELEGRAM_CHAT_ID" > "$ALERT_SENT_FILE"
 log "telegram ${KIND} sent name=${WATCH_NAME} failures=${FAILURES}"
 exit 0
